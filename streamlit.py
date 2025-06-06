@@ -1,10 +1,17 @@
 import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from sentence_transformers import SentenceTransformer
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 import config
+
+model = SentenceTransformer(
+    config.EMBEDDING_MODEL,
+    device='cpu',
+    cache_folder='./model_cache'
+)
 
 # Initialize all components directly
 llm = ChatGoogleGenerativeAI(
@@ -16,7 +23,8 @@ llm = ChatGoogleGenerativeAI(
 # Initialize vector store
 embeddings = HuggingFaceEmbeddings(
     model_name=config.EMBEDDING_MODEL,
-    model_kwargs={'device': 'cpu'}  # Force CPU usage
+    model_kwargs={'device': 'cpu'},
+    encode_kwargs={'normalize_embeddings': False}
 )
 qdrant_client = QdrantClient(
     url=config.QDRANT_URL,
