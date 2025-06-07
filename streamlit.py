@@ -3,8 +3,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from sentence_transformers import SentenceTransformer
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
+from retriever import getContext
 import config
 
 model = SentenceTransformer(
@@ -13,38 +12,11 @@ model = SentenceTransformer(
     cache_folder='./model_cache'
 )
 
-# Initialize all components directly
 llm = ChatGoogleGenerativeAI(
     model="models/gemini-2.0-flash",
     google_api_key=config.GOOGLE_API_KEY,
     temperature=0.7
 )
-
-# Initialize vector store
-embeddings = HuggingFaceEmbeddings(
-    model_name=config.EMBEDDING_MODEL,
-    model_kwargs={'device': 'cpu'},
-    encode_kwargs={'normalize_embeddings': False}
-)
-qdrant_client = QdrantClient(
-    url=config.QDRANT_URL,
-    api_key=config.QDRANT_API_KEY,
-)
-vectorstore = QdrantVectorStore(
-    client=qdrant_client,
-    collection_name="mb_docs",
-    embedding=embeddings
-)
-relevance_threshold = 0.3
-
-def getContext(query):
-    results = vectorstore.similarity_search_with_score(query, k=3)
-    relevant_docs = [(doc, score) for doc, score in results if score > relevance_threshold]
-    print("Scores:", [score for _, score in results])
-    if relevant_docs:
-        rag_context = " ".join(doc.page_content for doc, _ in relevant_docs)
-        return rag_context
-    return None
 
 # Instruction prompt
 instruction = """
@@ -87,7 +59,6 @@ You learned that trying different patterns is not the only thing to focus on whe
 You're planning to create a chord progression that suits your beat and wants to enhance or complement its vibe.
 """
 
-# Helper functions
 def combined_input(rag, messages):
     conversation_history = ""
     for msg in messages:
@@ -130,7 +101,6 @@ def decide_to_terminate(response):
     decision = llm.invoke(prompt).content.strip().lower()
     return decision
 
-# Page setup
 st.title("Reflective Learning")
 st.caption("A conversational guide for your MusicBlocks learning journey")
 
@@ -138,7 +108,6 @@ st.caption("A conversational guide for your MusicBlocks learning journey")
 with st.sidebar:
     st.header("Additional Options")
 
-    # Generate Summary Button
     if st.button("Generate Summary"):
         try:
             new_summary = generate_summary(st.session_state.messages)
@@ -148,14 +117,12 @@ with st.sidebar:
                 AIMessage(content=f"📝 Here's a summary of our conversation:\n\n{new_summary.content}")
             )
             
-            # Display the new message
             with st.chat_message("assistant"):
                 st.markdown(f"📝 Here's a summary of our conversation:\n\n{new_summary.content}")
                 
         except Exception as e:
             st.error(f"Error generating summary: {str(e)}")
 
-    # Generate Analysis Button (only if summary is generated)
     if st.button("Generate Analysis"):
         if not st.session_state.summary:
             st.warning("⚠️ Please generate a summary first.")
@@ -178,7 +145,7 @@ with st.sidebar:
 # Display chat messages
 for message in st.session_state.messages:
     if isinstance(message, SystemMessage):
-        continue  # Skip system messages in display
+        continue
     role = "user" if isinstance(message, HumanMessage) else "assistant"
     with st.chat_message(role):
         st.markdown(message.content)
@@ -186,30 +153,26 @@ for message in st.session_state.messages:
 # Chat input
 if not st.session_state.terminated:
     if prompt := st.chat_input("What would you like to discuss about your MusicBlocks project?"):
-        # Add user message to history and display
+
         user_message = HumanMessage(content=prompt)
         st.session_state.messages.append(user_message)
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Get assistant response
         with st.spinner("Thinking..."):
             try:
-                # Get relevant context from vector store
                 relevant_docs = getContext(prompt)
                 
-                # Generate response
                 prompt_with_context = combined_input(relevant_docs, st.session_state.messages)
                 result = llm.invoke(prompt_with_context)
                 full_response = result.content
                 
-                # Add to messages and display
+
                 assistant_message = AIMessage(content=full_response)
                 st.session_state.messages.append(assistant_message)
                 with st.chat_message("assistant"):
                     st.markdown(full_response)
 
-                # Check if conversation should terminate
                 if len([m for m in st.session_state.messages if isinstance(m, AIMessage)]) > 20:
                     if decide_to_terminate(full_response) == "yes":
                         st.session_state.terminated = True
