@@ -5,6 +5,8 @@ from sentence_transformers import SentenceTransformer
 from langchain_huggingface import HuggingFaceEmbeddings
 from retriever import getContext
 import config
+from utils.session_state import initialize_session_state
+from utils.prompts import instructions
 
 model = SentenceTransformer(
     config.EMBEDDING_MODEL,
@@ -18,53 +20,16 @@ llm = ChatGoogleGenerativeAI(
     temperature=0.7
 )
 
-# Instruction prompt
-instruction = """
-Role: You are a teacher on the MusicBlocks platform, guiding users through deep, analytical discussions that foster conceptual learning and self-improvement. WORD LIMIT: 30.
-Guidelines:
-1.Structured Inquiry: Ask these in order:
-    What did you do?,
-    Why did you do it?,
-    What approach you used? Why this approach?,
-    Ask technical questions based on context. Discuss alternatives. (Ask follow-up questions),
-    Were you able to achieve the desired goal? If no, what do you think went wrong? (Ask follow-up questions to clarify),
-    What challenges did you face?,
-    What did you learn?,
-    What's next?
-
-2.Cross question if something is not clear,
-3.Try to get to the root of the user's understanding,
-4.Avoid repetition. Adapt questions based on context and previous responses.
-5.Judge the provided context, if it has context to user query then use it.
-6.Keep the conversation on track if the user deviates.
-7.Limit your side to 20 dialogues.
-8.Focus only on the current project. Ignore past projects.
-9.After all questions, ask if they want to continue. If not, give a goodbye message.
-"""
-
 # Initialize session state
-if "messages" not in st.session_state:
-    st.session_state.messages = [SystemMessage(content=instruction)]
-if "terminated" not in st.session_state:
-    st.session_state.terminated = False
-if "summary" not in st.session_state:
-    st.session_state.summary = ""
-if "analysis" not in st.session_state:
-    st.session_state.analysis = ""
-if "old_summary" not in st.session_state:
-    st.session_state.old_summary = """
-Let's summarize what we've discussed so far:
-You created a project in Music Blocks and made a cool hip-hop beat. You used the Pitch-Drum Matrix to experiment with different rhythms and patterns, which allowed you to think freely and focus on the creative aspect.
-You learned that trying different patterns is not the only thing to focus on when creating a beat, and that splitting a note value can lead to some really cool and unique sounds.
-You're planning to create a chord progression that suits your beat and wants to enhance or complement its vibe.
-"""
+initialize_session_state()
 
 def combined_input(rag, messages):
     conversation_history = ""
     for msg in messages:
-        role = "System" if isinstance(msg, SystemMessage) else "User" if isinstance(msg, HumanMessage) else "Assistant"
+        role = "System" if isinstance(msg, SystemMessage) else "User" if isinstance(msg, HumanMessage) else f"{selected_mentor} assistant"
         conversation_history += f"{role}: {msg.content}\n"
-    return f"Context: {rag}\nConversation History:\n{conversation_history}\nAssistant:"
+        final_prompt = f"Conversation History:\n{conversation_history}" + f"\n\nContext: {rag}\n\n{selected_mentor} assistant:"
+    return final_prompt
 
 def generate_summary(messages):
     user_queries = [msg.content for msg in messages if isinstance(msg, HumanMessage)]
@@ -108,17 +73,34 @@ st.caption("A conversational guide for your MusicBlocks learning journey")
 with st.sidebar:
     st.header("Additional Options")
 
+    selected_mentor = st.selectbox(
+        "Choose a Mentor", 
+        options=["meta", "music", "code"], 
+        index=["meta", "music", "code"].index(st.session_state.mentor)
+    )
+    if selected_mentor != st.session_state.mentor:
+        st.session_state.mentor = selected_mentor
+        if selected_mentor != st.session_state.mentor:
+            st.session_state.mentor = selected_mentor
+            
+        for idx, msg in enumerate(st.session_state.messages):
+            if isinstance(msg, SystemMessage):
+                st.session_state.messages[idx] = SystemMessage(content=instructions[selected_mentor])
+                break
+        else:
+            st.session_state.messages.insert(0, SystemMessage(content=instructions[selected_mentor]))
+            # st.rerun()
+        
     if st.button("Generate Summary"):
         try:
-            new_summary = generate_summary(st.session_state.messages)
-            st.session_state.summary = new_summary.content
-
-            st.session_state.messages.append(
-                AIMessage(content=f"📝 Here's a summary of our conversation:\n\n{new_summary.content}")
-            )
-            
-            with st.chat_message("assistant"):
-                st.markdown(f"📝 Here's a summary of our conversation:\n\n{new_summary.content}")
+            if len(st.session_state.messages) < 10:
+                st.warning("⚠️ Not enough messages to generate a summary. Please have a conversation first.")
+            else:
+                new_summary = generate_summary(st.session_state.messages)
+                st.session_state.summary = new_summary.content
+                st.session_state.messages.append(
+                    AIMessage(content=f"📝 Here's a summary of our conversation:\n\n{new_summary.content}")
+                )
                 
         except Exception as e:
             st.error(f"Error generating summary: {str(e)}")
@@ -130,14 +112,9 @@ with st.sidebar:
             try:
                 outcome = analysis(st.session_state.old_summary, st.session_state.summary)
                 st.session_state.outcome = outcome.content
-
                 st.session_state.messages.append(
                     AIMessage(content=f"📈 Learning Outcome:\n\n{outcome.content}")
                 )
-                
-                # Display the new message
-                with st.chat_message("assistant"):
-                    st.markdown(f"📈 Learning Outcome:\n\n{outcome.content}")
                     
             except Exception as e:
                 st.error(f"Error generating analysis: {str(e)}")
@@ -164,10 +141,10 @@ if not st.session_state.terminated:
                 relevant_docs = getContext(prompt)
                 
                 prompt_with_context = combined_input(relevant_docs, st.session_state.messages)
+                print("Prompt with context:", prompt_with_context)
                 result = llm.invoke(prompt_with_context)
                 full_response = result.content
                 
-
                 assistant_message = AIMessage(content=full_response)
                 st.session_state.messages.append(assistant_message)
                 with st.chat_message("assistant"):
