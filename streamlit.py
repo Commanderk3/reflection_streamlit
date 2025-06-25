@@ -7,6 +7,7 @@ from retriever import getContext
 import config
 from utils.session_state import initialize_session_state
 from utils.prompts import instructions
+from utils.blocks import findBlockInfo
 
 model = SentenceTransformer(
     config.EMBEDDING_MODEL,
@@ -15,9 +16,10 @@ model = SentenceTransformer(
 )
 
 llm = ChatGoogleGenerativeAI(
-    model="models/gemini-2.0-flash",
+    model="models/gemini-2.5-flash",
     google_api_key=config.GOOGLE_API_KEY,
-    temperature=0.7
+    temperature=0.7,
+    disable_streaming=False
 )
 
 # Initialize session state
@@ -36,7 +38,7 @@ def generate_summary(messages):
     assistant_responses = [msg.content for msg in messages if isinstance(msg, AIMessage)]
     summary_prompt = f"""
     Analyze the following conversation and generate a concise summary for the User's learning and takeaways points. Cover User Queries only.
-    Add only relevant information in this summary. Write a paragraph under 100 words (detailed).
+    Add only relevant information in this summary. Write a paragraph under 200 words (detailed).
     User Queries:
     {user_queries}
     Assistant Responses:
@@ -65,6 +67,11 @@ def decide_to_terminate(response):
     """
     decision = llm.invoke(prompt).content.strip().lower()
     return decision
+
+def test():
+    prompt = "Test the AI's response to a specific query."
+    response = llm.invoke(prompt).content.strip()
+    return response
 
 st.title("Reflective Learning")
 st.caption("A conversational guide for your MusicBlocks learning journey")
@@ -118,6 +125,10 @@ with st.sidebar:
                     
             except Exception as e:
                 st.error(f"Error generating analysis: {str(e)}")
+    
+    if st.button("Test"):
+        outcome = test()
+        st.write(outcome)
 
 # Display chat messages
 for message in st.session_state.messages:
@@ -138,22 +149,25 @@ if not st.session_state.terminated:
 
         with st.spinner("Thinking..."):
             try:
-                relevant_docs = getContext(prompt)
-                
-                prompt_with_context = combined_input(relevant_docs, st.session_state.messages)
-                print("Prompt with context:", prompt_with_context)
-                result = llm.invoke(prompt_with_context)
-                full_response = result.content
-                
-                assistant_message = AIMessage(content=full_response)
-                st.session_state.messages.append(assistant_message)
-                with st.chat_message("assistant"):
-                    st.markdown(full_response)
-
-                if len([m for m in st.session_state.messages if isinstance(m, AIMessage)]) > 20:
-                    if decide_to_terminate(full_response) == "yes":
-                        st.session_state.terminated = True
-                        st.rerun()
+                startBlock = "Start of Project\n├──"
+                if startBlock in prompt:
+                    blockInfo = findBlockInfo(prompt)
+                    st.session_state.messages.insert(0, SystemMessage(
+                        content=f"{instructions[selected_mentor]}\n Project Code: {prompt} \n Block Info: {blockInfo}"))                  
+                else :
+                              
+                    relevant_docs = getContext(prompt)
+                    prompt_with_context = combined_input(relevant_docs, st.session_state.messages)    
+                    with st.chat_message("assistant"):
+                        full_response = ""  
+                        container = st.empty()        
+                        for chunk in llm.stream([HumanMessage(content=prompt_with_context)]):
+                            full_response += chunk.content
+                            container.markdown(full_response + "▌")                           
+                        container.markdown(full_response)      
+                    
+                    assistant_message = AIMessage(content=full_response)
+                    st.session_state.messages.append(assistant_message)
 
             except Exception as e:
                 st.error(f"Error generating response: {str(e)}")
