@@ -68,11 +68,6 @@ def decide_to_terminate(response):
     decision = llm.invoke(prompt).content.strip().lower()
     return decision
 
-def test():
-    prompt = "Test the AI's response to a specific query."
-    response = llm.invoke(prompt).content.strip()
-    return response
-
 st.title("Reflective Learning")
 st.caption("A conversational guide for your MusicBlocks learning journey")
 
@@ -125,10 +120,7 @@ with st.sidebar:
                     
             except Exception as e:
                 st.error(f"Error generating analysis: {str(e)}")
-    
-    if st.button("Test"):
-        outcome = test()
-        st.write(outcome)
+
 
 # Display chat messages
 for message in st.session_state.messages:
