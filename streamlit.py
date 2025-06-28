@@ -16,7 +16,7 @@ model = SentenceTransformer(
 )
 
 llm = ChatGoogleGenerativeAI(
-    model="models/gemini-2.5-flash",
+    model="models/gemini-1.5-flash",
     google_api_key=config.GOOGLE_API_KEY,
     temperature=0.7,
     disable_streaming=False
