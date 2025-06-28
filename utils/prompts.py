@@ -68,3 +68,8 @@ General Guidelines: {general_instructions}
 Usage: Use the user's project code to provide specific feedback and insights.
 """
 }
+
+generate_algorithm = """
+1. Provide a simple step-by-step algorithm for this code block structure.
+2. What could be the use of this code? Explain its purpose and functionality. (Under 50 words)
+"""

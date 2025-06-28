@@ -6,7 +6,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from retriever import getContext
 import config
 from utils.session_state import initialize_session_state
-from utils.prompts import instructions
+from utils.prompts import instructions, generate_algorithm
 from utils.blocks import findBlockInfo
 
 model = SentenceTransformer(
@@ -16,6 +16,13 @@ model = SentenceTransformer(
 )
 
 llm = ChatGoogleGenerativeAI(
+    model="models/gemini-2.5-flash",
+    google_api_key=config.GOOGLE_API_KEY,
+    temperature=0.7,
+    disable_streaming=False
+)
+
+reasoning_llm = ChatGoogleGenerativeAI(
     model="models/gemini-2.5-flash",
     google_api_key=config.GOOGLE_API_KEY,
     temperature=0.7,
@@ -67,6 +74,17 @@ def decide_to_terminate(response):
     """
     decision = llm.invoke(prompt).content.strip().lower()
     return decision
+
+def stream_response(prompt, model):
+    full_response = ""  
+    container = st.empty()        
+    for chunk in model.stream([HumanMessage(content=prompt)]):
+        full_response += chunk.content
+        container.markdown(full_response + "▌")                           
+    container.markdown(full_response)
+    
+    return full_response
+
 
 st.title("Reflective Learning")
 st.caption("A conversational guide for your MusicBlocks learning journey")
@@ -144,22 +162,14 @@ if not st.session_state.terminated:
                 startBlock = "Start of Project\n├──"
                 if startBlock in prompt:
                     blockInfo = findBlockInfo(prompt)
-                    st.session_state.messages.insert(0, SystemMessage(
-                        content=f"{instructions[selected_mentor]}\n Project Code: {prompt} \n Block Info: {blockInfo}"))                  
-                else :
-                              
+                    algorithm = stream_response(f"instructions:\n{generate_algorithm}\n\ncode:\n{prompt}\n\nBlock Info:\n{blockInfo}", reasoning_llm)
+                    st.session_state.messages.append(AIMessage(content=algorithm))
+    
+                else : 
                     relevant_docs = getContext(prompt)
-                    prompt_with_context = combined_input(relevant_docs, st.session_state.messages)    
-                    with st.chat_message("assistant"):
-                        full_response = ""  
-                        container = st.empty()        
-                        for chunk in llm.stream([HumanMessage(content=prompt_with_context)]):
-                            full_response += chunk.content
-                            container.markdown(full_response + "▌")                           
-                        container.markdown(full_response)      
-                    
-                    assistant_message = AIMessage(content=full_response)
-                    st.session_state.messages.append(assistant_message)
+                    prompt_with_context = combined_input(relevant_docs, st.session_state.messages)
+                    response = stream_response(prompt_with_context, llm)               
+                    st.session_state.messages.append(AIMessage(content=response))
 
             except Exception as e:
                 st.error(f"Error generating response: {str(e)}")
