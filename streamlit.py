@@ -2,7 +2,6 @@ import streamlit as st
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from sentence_transformers import SentenceTransformer
-from langchain_huggingface import HuggingFaceEmbeddings
 from retriever import getContext
 import config
 from utils.session_state import initialize_session_state
@@ -16,7 +15,7 @@ model = SentenceTransformer(
 )
 
 llm = ChatGoogleGenerativeAI(
-    model="models/gemini-1.5-flash",
+    model="models/gemini-2.0-flash",
     google_api_key=config.GOOGLE_API_KEY,
     temperature=0.7,
     disable_streaming=False
@@ -52,19 +51,28 @@ def generate_summary(messages):
     {assistant_responses}
     Summary:
     """
-    return llm.invoke(summary_prompt)
+    return reasoning_llm.invoke(summary_prompt)
 
 def analysis(old_summary, new_summary):
     analysis_prompt = f"""
-    Analyze the user's learning by comparing two summaries. Identify key improvements, knowledge growth, and remaining gaps. 
-    Provide a constructive, truthful and realistic assessment of their development over time in a paragraph under 50 words, avoiding flattery.
+    You are an expert reflective coach analyzing a learner's journey. Your task is to deeply analyze these summaries to identify the following:
+
+    1. Progress: What areas show clear signs of learning, growth, or improvement?
+    2. Patterns: Are there recurring themes, ideas, challenges, or emotions?
+    3. Gaps: What areas are underdeveloped or need further reflection or practice?
+    4. Mindset: What does the learner's attitude toward learning suggest (e.g., confidence, curiosity, self-doubt)?
+    5. Recommendations: Suggest 2-3 personalized next steps to deepen their learning or reflection.
+
+    Present the analysis in clear sections with thoughtful insights.
+    Avoid simply repeating what the summaries say — provide higher-level interpretation and reasoning.
+
     Previous Summary:
     {old_summary}
     Current Summary:
     {new_summary}
     Learning Outcome:
     """
-    return llm.invoke(analysis_prompt)
+    return reasoning_llm.invoke(analysis_prompt)
 
 def decide_to_terminate(response):
     prompt = f"""
@@ -82,7 +90,6 @@ def stream_response(prompt, model):
         full_response += chunk.content
         container.markdown(full_response + "▌")                           
     container.markdown(full_response)
-    
     return full_response
 
 
