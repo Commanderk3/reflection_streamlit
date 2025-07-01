@@ -14,8 +14,9 @@ A reflective learning chatbot built using Streamlit and powered by LLMs. It asks
 
 - **Frontend:** Streamlit
 - **Backend:** Python, LangChain, Gemini API
-- **Database:** Qdrant Cloud
+- **Vector Database:** Qdrant Cloud
 - **LLMs:** Google Gemini 2.5 Flash, Google Gemini 1.5 Flash
+- **Sentence Transformer:** `all-MiniLM-L6-v2`
 
 ## 📦 Installation
 
