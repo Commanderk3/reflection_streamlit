@@ -4,6 +4,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from sentence_transformers import SentenceTransformer
 from retriever import getContext
 import config
+import json
 from utils.session_state import initialize_session_state
 from utils.prompts import instructions, generate_algorithm
 from utils.blocks import findBlockInfo
@@ -30,6 +31,8 @@ reasoning_llm = ChatGoogleGenerativeAI(
 
 # Initialize session state
 initialize_session_state()
+
+data = []
 
 def combined_input(rag, messages):
     conversation_history = ""
@@ -105,18 +108,17 @@ with st.sidebar:
         options=["meta", "music", "code"], 
         index=["meta", "music", "code"].index(st.session_state.mentor)
     )
+    
     if selected_mentor != st.session_state.mentor:
         st.session_state.mentor = selected_mentor
-        if selected_mentor != st.session_state.mentor:
-            st.session_state.mentor = selected_mentor
             
-        for idx, msg in enumerate(st.session_state.messages):
-            if isinstance(msg, SystemMessage):
-                st.session_state.messages[idx] = SystemMessage(content=instructions[selected_mentor])
-                break
-        else:
-            st.session_state.messages.insert(0, SystemMessage(content=instructions[selected_mentor]))
-            # st.rerun()
+    for idx, msg in enumerate(st.session_state.messages):
+        if isinstance(msg, SystemMessage):
+            st.session_state.messages[idx] = SystemMessage(content=instructions[selected_mentor])
+            break
+    else:
+        st.session_state.messages.insert(0, SystemMessage(content=instructions[selected_mentor]))
+        # st.rerun()
         
     if st.button("Generate Summary"):
         try:
@@ -145,7 +147,26 @@ with st.sidebar:
                     
             except Exception as e:
                 st.error(f"Error generating analysis: {str(e)}")
+    
+    # Upload JSON file
 
+    uploadFile = st.file_uploader("Choose a JSON file", type="json")
+    if uploadFile is not None:
+        try:
+            data = json.load(uploadFile)
+            st.success("Conversation updated!")
+            st.json(data)
+            for entry in data:
+                if entry['role'] == 'System':
+                    st.session_state.messages.insert(0, SystemMessage(content=entry['content']))
+                elif entry['role'] == 'User':
+                    st.session_state.messages.append(HumanMessage(content=entry['content']))
+                else:
+                    st.session_state.messages.append(AIMessage(content=entry['content']))
+                    
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error reading JSON: {e}")
 
 # Display chat messages
 for message in st.session_state.messages:
@@ -160,6 +181,7 @@ if not st.session_state.terminated:
     if prompt := st.chat_input("What would you like to discuss about your MusicBlocks project?"):
 
         user_message = HumanMessage(content=prompt)
+        print(data)
         st.session_state.messages.append(user_message)
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -177,6 +199,7 @@ if not st.session_state.terminated:
                     prompt_with_context = combined_input(relevant_docs, st.session_state.messages)
                     response = stream_response(prompt_with_context, llm)               
                     st.session_state.messages.append(AIMessage(content=response))
+                    print(data)
 
             except Exception as e:
                 st.error(f"Error generating response: {str(e)}")
@@ -185,3 +208,19 @@ if not st.session_state.terminated:
                 )
 else:
     st.info("This conversation has ended. Please refresh the page to start a new one.")
+    
+with st.sidebar:
+     # Download Button
+    for msg in st.session_state.messages:
+        role = "System" if isinstance(msg, SystemMessage) else "User" if isinstance(msg, HumanMessage) else f"{selected_mentor} Assistant"
+        data.append({"role": role, "content": msg.content})
+
+    json_string = json.dumps(data, indent=4)
+
+    st.download_button(
+        label="Save Conversation",
+        data=json_string,
+        file_name="conversation.json",
+        mime="application/json"
+    )
+    
