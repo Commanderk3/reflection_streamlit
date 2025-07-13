@@ -8,6 +8,7 @@ import json
 from utils.session_state import initialize_session_state
 from utils.prompts import instructions, generate_algorithm
 from utils.blocks import findBlockInfo
+from utils.parser import convert_music_blocks
 
 model = SentenceTransformer(
     config.EMBEDDING_MODEL,
@@ -32,7 +33,7 @@ reasoning_llm = ChatGoogleGenerativeAI(
 # Initialize session state
 initialize_session_state()
 
-data = []
+algorithm = ""
 
 def combined_input(rag, messages):
     conversation_history = ""
@@ -77,15 +78,6 @@ def analysis(old_summary, new_summary):
     """
     return reasoning_llm.invoke(analysis_prompt)
 
-def decide_to_terminate(response):
-    prompt = f"""
-    AI Message: "{response}"
-    Did the AI say bye to the user? Is the AI saying that the conversation is over and come to an end? 
-    (only yes/no)
-    """
-    decision = llm.invoke(prompt).content.strip().lower()
-    return decision
-
 def stream_response(prompt, model):
     full_response = ""  
     container = st.empty()        
@@ -108,31 +100,12 @@ with st.sidebar:
         options=["meta", "music", "code"], 
         index=["meta", "music", "code"].index(st.session_state.mentor)
     )
-    
+
     if selected_mentor != st.session_state.mentor:
         st.session_state.mentor = selected_mentor
-            
-    for idx, msg in enumerate(st.session_state.messages):
-        if isinstance(msg, SystemMessage):
-            st.session_state.messages[idx] = SystemMessage(content=instructions[selected_mentor])
-            break
-    else:
-        st.session_state.messages.insert(0, SystemMessage(content=instructions[selected_mentor]))
+        st.session_state.messages[0] = SystemMessage(content=instructions[selected_mentor] + "\n\n--- Algorithm ---\n" + st.session_state.code_algorithm)
         # st.rerun()
         
-    if st.button("Generate Summary"):
-        try:
-            if len(st.session_state.messages) < 10:
-                st.warning("⚠️ Not enough messages to generate a summary. Please have a conversation first.")
-            else:
-                new_summary = generate_summary(st.session_state.messages)
-                st.session_state.summary = new_summary.content
-                st.session_state.messages.append(
-                    AIMessage(content=f"📝 Here's a summary of our conversation:\n\n{new_summary.content}")
-                )
-                
-        except Exception as e:
-            st.error(f"Error generating summary: {str(e)}")
 
     if st.button("Generate Analysis"):
         if not st.session_state.summary:
@@ -149,14 +122,17 @@ with st.sidebar:
                 st.error(f"Error generating analysis: {str(e)}")
     
     # Upload JSON file
-
     uploadFile = st.file_uploader("Choose a JSON file", type="json")
-    if uploadFile is not None:
+    if len(st.session_state.messages) > 1 and uploadFile is not None:
         try:
+            st.session_state.uploaded = True
             data = json.load(uploadFile)
             st.success("Conversation updated!")
             st.json(data)
-            for entry in data:
+            
+            st.session_state.mentor = data['mentor']
+            
+            for entry in data['msg_history']:
                 if entry['role'] == 'System':
                     st.session_state.messages.insert(0, SystemMessage(content=entry['content']))
                 elif entry['role'] == 'User':
@@ -164,59 +140,71 @@ with st.sidebar:
                 else:
                     st.session_state.messages.append(AIMessage(content=entry['content']))
                     
-                st.rerun()
         except Exception as e:
             st.error(f"Error reading JSON: {e}")
 
-# Display chat messages
-for message in st.session_state.messages:
-    if isinstance(message, SystemMessage):
-        continue
-    role = "user" if isinstance(message, HumanMessage) else "assistant"
-    with st.chat_message(role):
-        st.markdown(message.content)
+
+if 'data' not in st.session_state or not st.session_state.data :
+    uploaded_data = st.text_area("Paste your MusicBlocks project data here:")
+    if uploaded_data:
+        st.session_state.data = uploaded_data
+        st.success("Project data uploaded successfully!")
+        
+        data = json.loads(uploaded_data)
+        
+        flowchart = convert_music_blocks(data)
+        blockInfo = findBlockInfo(flowchart)
+        
+        algorithm = llm.invoke(f"instructions:\n{generate_algorithm}\n\ncode:\n{flowchart}\n\nBlock Info:\n{blockInfo}")
+        st.session_state.code_algorithm = algorithm.content   
+        st.session_state.messages[0] = SystemMessage(content=instructions[selected_mentor] + "\n\n--- Algorithm ---\n" + algorithm.content)
+        
+        prompt = combined_input("", st.session_state.messages)
+        response = stream_response(prompt, llm)
+        st.session_state.messages.append(AIMessage(content=algorithm.content + response))
+        st.rerun()
 
 # Chat input
-if not st.session_state.terminated:
-    if prompt := st.chat_input("What would you like to discuss about your MusicBlocks project?"):
+if st.session_state.uploaded or ('data' in st.session_state and st.session_state.data):
+    if not st.session_state.terminated:
+        if prompt := st.chat_input("What would you like to discuss about your MusicBlocks project?"):
+            st.session_state.messages.append(HumanMessage(content=prompt))
 
-        user_message = HumanMessage(content=prompt)
-        print(data)
-        st.session_state.messages.append(user_message)
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.spinner("Thinking..."):
-            try:
-                startBlock = "Start of Project\n├──"
-                if startBlock in prompt:
-                    blockInfo = findBlockInfo(prompt)
-                    algorithm = stream_response(f"instructions:\n{generate_algorithm}\n\ncode:\n{prompt}\n\nBlock Info:\n{blockInfo}", reasoning_llm)
-                    st.session_state.messages.append(AIMessage(content=algorithm))
-    
-                else : 
+            with st.spinner("Thinking..."):
+                try:
                     relevant_docs = getContext(prompt)
                     prompt_with_context = combined_input(relevant_docs, st.session_state.messages)
-                    response = stream_response(prompt_with_context, llm)               
+                    response = stream_response(prompt_with_context, llm)
                     st.session_state.messages.append(AIMessage(content=response))
-                    print(data)
-
-            except Exception as e:
-                st.error(f"Error generating response: {str(e)}")
-                st.session_state.messages.append(
-                    AIMessage(content="Sorry, I'm having trouble generating a response. Please try again.")
-                )
-else:
-    st.info("This conversation has ended. Please refresh the page to start a new one.")
+                except Exception as e:
+                    st.error(f"Error generating response: {str(e)}")
+                    st.session_state.messages.append(
+                        AIMessage(content="Sorry, I'm having trouble generating a response. Please try again.")
+                    )
+    else:
+        st.info("This conversation has ended. Please refresh the page to start a new one.")
+        
+# Display chat messages
+for i, message in enumerate(st.session_state.messages):
+    if not isinstance(message, SystemMessage):
+        role = "user" if isinstance(message, HumanMessage) else "assistant"
+        with st.chat_message(role):
+            st.write(message.content) 
     
 with st.sidebar:
-     # Download Button
+    # Download Button
+    save_data = []
     for msg in st.session_state.messages:
-        role = "System" if isinstance(msg, SystemMessage) else "User" if isinstance(msg, HumanMessage) else f"{selected_mentor} Assistant"
-        data.append({"role": role, "content": msg.content})
+        role = "System" if isinstance(msg, SystemMessage) else "User" if isinstance(msg, HumanMessage) else f"Assistant"
+        save_data.append({"role": role, "content": msg.content})
 
-    json_string = json.dumps(data, indent=4)
-
+    content = {
+        "mentor": st.session_state.mentor,
+        "msg_history": save_data
+    }
+    
+    json_string = json.dumps(content, indent=4)
+    
     st.download_button(
         label="Save Conversation",
         data=json_string,

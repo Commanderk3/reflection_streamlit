@@ -3,6 +3,12 @@ from langchain_core.messages import SystemMessage
 from utils.prompts import instructions
 
 def initialize_session_state():
+    if 'uploaded' not in st.session_state:
+        st.session_state.uploaded = False
+    if 'code_algorithm' not in st.session_state:
+        st.session_state.code_algorithm = ""
+    if 'data' not in st.session_state:
+        st.session_state.data = ""
     if "mentor" not in st.session_state:
         st.session_state.mentor = "meta"
     if "messages" not in st.session_state:
