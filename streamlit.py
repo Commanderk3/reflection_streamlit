@@ -43,20 +43,6 @@ def combined_input(rag, messages):
         final_prompt = f"Conversation History:\n{conversation_history}" + f"\n\nContext: {rag}\n\n{selected_mentor} assistant:"
     return final_prompt
 
-def generate_summary(messages):
-    user_queries = [msg.content for msg in messages if isinstance(msg, HumanMessage)]
-    assistant_responses = [msg.content for msg in messages if isinstance(msg, AIMessage)]
-    summary_prompt = f"""
-    Analyze the following conversation and generate a concise summary for the User's learning and takeaways points. Cover User Queries only.
-    Add only relevant information in this summary. Write a paragraph under 200 words (detailed).
-    User Queries:
-    {user_queries}
-    Assistant Responses:
-    {assistant_responses}
-    Summary:
-    """
-    return reasoning_llm.invoke(summary_prompt)
-
 def analysis(old_summary, new_summary):
     analysis_prompt = f"""
     You are an expert reflective coach analyzing a learner's journey. Your task is to deeply analyze these summaries to identify the following:
@@ -155,7 +141,7 @@ if 'data' not in st.session_state or not st.session_state.data :
         flowchart = convert_music_blocks(data)
         blockInfo = findBlockInfo(flowchart)
         
-        algorithm = llm.invoke(f"instructions:\n{generate_algorithm}\n\ncode:\n{flowchart}\n\nBlock Info:\n{blockInfo}")
+        algorithm = reasoning_llm.invoke(f"instructions:\n{generate_algorithm}\n\ncode:\n{flowchart}\n\nBlock Info:\n{blockInfo}")
         st.session_state.code_algorithm = algorithm.content   
         st.session_state.messages[0] = SystemMessage(content=instructions[selected_mentor] + "\n\n--- Algorithm ---\n" + algorithm.content)
         
